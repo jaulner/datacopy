@@ -62,19 +62,20 @@ public class DataCopy
     /**
      * Creates an authorized Credential object.
      *
-     * @param HTTP_TRANSPORT The network HTTP Transport.
+     * @param HTTP_TRANSPORT The network HTTP Transport.0
      * @return An authorized Credential object.
      * @throws IOException If the credentials.json file cannot be found.
      */
     private static Credential getCredentials(final NetHttpTransport HTTP_TRANSPORT) throws IOException
     {
-        // Load client secrets.
+        // Load client id & secret.
         InputStream in = DataCopy.class.getResourceAsStream(CREDENTIALS_FILE_PATH);
         if (in == null)
         {
             throw new FileNotFoundException("Resource not found: " + CREDENTIALS_FILE_PATH);
         }
 
+        // Load credentials from .json file in an object
         GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(JSON_FACTORY, new InputStreamReader(in));
 
         // Build flow and trigger user authorization request.
@@ -190,11 +191,6 @@ public class DataCopy
         Gmail service = new Gmail.Builder(HTTP_TRANSPORT, JSON_FACTORY, getCredentials(HTTP_TRANSPORT))
                                  .setApplicationName(APPLICATION_NAME)
                                  .build();
-        sendMessage(service,"me", createEmail("johnny@naosoft.us.com","jaulner@gmail.com",
-                                                    "Test email","It works!!"));
-
-        System.exit(0);
-
 
         final Scanner userInput = new Scanner(System.in);
 
@@ -202,25 +198,11 @@ public class DataCopy
         final int modForDir = userInput.nextInt();
         userInput.nextLine();
 
-
         System.out.print("FROM Location [ex. d:\\, d:\\my_folder, \\\\host\\share]: ");
-//        String in = userInput.nextLine().replace("\\","/");
-//        System.out.println("in:" + in);
-//        Path fromPath = Paths.get(in);
         final Path fromPath = Paths.get(userInput.nextLine());
-//        System.out.println("fromPath.toString: " + fromPath.toString());
-//        System.out.println("fromPath.getFileName: " + fromPath.getFileName());
-//        System.out.println("fromPath.getParent: " + fromPath.getParent());
-//        System.out.println("fromPath.getRoot: " + fromPath.getRoot());
-
 
         System.out.print("TO Location [ex. d:\\, d:\\my_folder, \\\\host\\share]: ");
         final Path toPath = Paths.get(userInput.nextLine());
-//        System.out.println("toPath.toString: " + toPath.toString());
-//        System.out.println("toPath.toAbsolutePath: " + toPath.toAbsolutePath());
-//        System.out.println("toPath.getFileName: " + toPath.getFileName());
-//        System.out.println("toPath.getParent: " + toPath.getParent());
-//        System.out.println("toPath.getRoot: " + toPath.getRoot());
 
         // Verify TO and FROM destinations
         System.out.print("Are you sure you want copy files FROM \"" + fromPath + "\" -> TO \"" + toPath + "\" [YES]? ");
@@ -230,47 +212,51 @@ public class DataCopy
             System.exit(0);
         }
 
+        // Starting a timer
         LocalDateTime startDateTime = LocalDateTime.now();
         System.out.println("Start Date/Time: " + startDateTime.toString());
-//        System.out.println("Start Date/Time: " + DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withZone(ZoneId.systemDefault()).format(startDateTime));
 
-        // Create directories on TO side
+        // Create directories on TO side (depth-first)
         try (Stream<Path> walk = Files.walk(fromPath))
         {
 
+            // Get a list of directories only in the "from" path, function pointer
             final List<Path> result = walk.filter(Files::isDirectory) //.filter(Files::isRegularFile)
                     .collect(Collectors.toList());
 
 
-            // Copy files by directory in reverse order
+            // Copy files by directory in reverse order (process parents before children)
             ReverseListIterator<Path> reverseListIterator = new ReverseListIterator(result);
             Long dirCount = 0L;
 
+            // Iterate over the "from" directories
             while (reverseListIterator.hasNext())
             {
                 dirCount++;
 
+                //gets the next directory
                 final Path fromDir = reverseListIterator.next();
-//                System.out.println(fromDir.toString());
 
+                //getting the path to the "to" directory
                 final Path toDir = getToPath(fromDir, toPath);
+                //only null if root directory
                 if(toDir != null)
                 {
+                    //logging output to show progress
                     if(dirCount % modForDir == 0)
                     {
                         System.out.println("processing directory: " + toDir);
                     }
 
                     // Create Directory on TO side if it does NOT exist.
-                    if( !Files.exists(toDir) )
+                    if( !Files.exists(toDir) )  // check to make sure not already copied in a previous run (Idempoency)
                     {
 //                        System.out.println("creating..");
                         Files.createDirectories(toDir);
 //                        Files.createDirectory(toDir);
                     }
 
-                    // copy files - outside of the create directory if block incase a failure occured during file copying
-                    // Copy files
+                    // Now we can copy the files in the "from" directory to the "to" directory.
                     try (Stream<Path> walkFiles = Files.walk(fromDir))
                     {
                         List<Path> files = walkFiles.filter(Files::isRegularFile)
@@ -280,7 +266,7 @@ public class DataCopy
                         files.forEach(fromFile -> {
 //                            System.out.println("copy file: " + fromFile.toString());
                             final Path toFile = getToPath(fromFile, toPath);
-                            if( !Files.exists(toFile) )
+                            if( !Files.exists(toFile) )  // check to make sure not already copied in a previous run
                             {
                                 try
                                 {
@@ -290,7 +276,7 @@ public class DataCopy
                                 catch (Exception ex)
                                 {
                                     System.out.println(ex.getStackTrace());
-                                    throw new IllegalStateException("Failed to create directory: " + ex.getMessage());
+                                    throw new IllegalStateException("Failed to copy file: " + ex.getMessage());
                                 }
                             }
                         });
